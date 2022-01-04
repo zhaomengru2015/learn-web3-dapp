@@ -327,6 +327,12 @@ export const CHAINS_CONFIG: ChainsType = {
       {
         id: PROTOCOL_STEPS_ID.PYTH_CONNECT,
         title: 'Query Pyth on Solana',
+        skippable: true,
+      },
+      {
+        id: PROTOCOL_STEPS_ID.PYTH_EXCHANGE,
+        title: 'Exchange on Solana',
+        skippable: true,
       },
       {
         id: PROTOCOL_STEPS_ID.PYTH_EXCHANGE,
