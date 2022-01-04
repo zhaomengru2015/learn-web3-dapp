@@ -13,24 +13,24 @@ import {
 import {useGlobalState} from 'context';
 import {SyncOutlined} from '@ant-design/icons';
 import {useEffect, useState} from 'react';
-import {Cluster, clusterApiUrl, Connection, Keypair} from '@solana/web3.js';
+import {
+  Cluster,
+  clusterApiUrl,
+  Connection,
+  Keypair,
+  PublicKey,
+} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
 import {DollarCircleFilled} from '@ant-design/icons';
 import {Chart} from './Chart';
 import Wallet from '@project-serum/sol-wallet-adapter';
 import {EventEmitter} from 'events';
+import {useProviderAndWallet} from '@figment-pyth/lib/wallet';
 
 const SOLANA_CLUSTER_NAME: Cluster = 'devnet';
 const connection = new Connection(clusterApiUrl(SOLANA_CLUSTER_NAME));
 const pythPublicKey = getPythProgramKeyForCluster(SOLANA_CLUSTER_NAME);
 const pythConnection = new PythConnection(connection, pythPublicKey);
-
-let _wallet: Wallet | null = null;
-const useWallet = (): Wallet => {
-  if (_wallet) return _wallet;
-  _wallet = new Wallet('https://www.sollet.io', SOLANA_CLUSTER_NAME);
-  return _wallet;
-};
 
 interface FakeWallet {
   sol_balance: number;
@@ -49,7 +49,7 @@ const signalListener = new EventEmitter();
 
 const Exchange = () => {
   const {state, dispatch} = useGlobalState();
-  // const wallet = useWallet();
+  // const {wallet: _wallet, provider} = useProviderAndWallet();
 
   // Fake wallet for testing.
   const [wallet, setWallet] = useState<FakeWallet>({
@@ -148,11 +148,12 @@ const Exchange = () => {
           `${product.symbol}: $${price.price} \xB1$${price.confidence}`,
         );
         setPrice(price.price);
+        console.log(price, price.twac, new Date(Number(price.lastSlot)));
 
         const newData: {
           price: number;
           priceConfidenceRange: number[];
-          ts: bigint;
+          ts: number;
           sma: undefined | number;
           ema: undefined | number;
           trend: undefined | boolean;
@@ -162,7 +163,7 @@ const Exchange = () => {
             price?.price! - price?.confidence!,
             price?.price! + price?.confidence!,
           ],
-          ts: price.lastSlot,
+          ts: +new Date(),
           sma: undefined,
           ema: undefined,
           trend: undefined,
