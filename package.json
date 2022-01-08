@@ -26,7 +26,8 @@
     "@ceramicnetwork/http-client": "^1.3.0",
     "@ceramicstudio/idx": "^0.12.2",
     "@iov/crypto": "^2.5.0",
-    "@jup-ag/core": "^1.0.0-beta.4",
+    "@jup-ag/core": "1.0.0-beta.2",
+    "@jup-ag/react-hook": "1.0.0-beta.2",
     "@maticnetwork/maticjs": "2.0.46",
     "@metamask/detect-provider": "^1.2.0",
     "@polkadot/api": "^6.4.2",
@@ -112,5 +113,8 @@
     "react-test-renderer": "^17.0.2",
     "shelljs": "^0.8.4",
     "typescript": "^4.4.4"
+  },
+  "resolutions": {
+    "**/@saberhq/token-utils/**/@solana/buffer-layout": "^3.0.0"
   }
 }

@@ -15,6 +15,17 @@ import {
 import {Button, message, notification} from 'antd';
 import {useEffect, useMemo, useState} from 'react';
 
+export interface CustomWallet {
+  publicKey: PublicKey;
+  sendTransaction(
+    transaction: Transaction,
+    connection: Connection,
+    options?: SendTransactionOptions,
+  ): Promise<TransactionSignature>;
+  signTransaction(transaction: Transaction): Promise<Transaction>;
+  signAllTransactions(transaction: Transaction[]): Promise<Transaction[]>;
+}
+
 export const useProviderAndWallet = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [tokenList, setTokenList] = useState<TokenListContainer | null>(null);

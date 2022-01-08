@@ -13,14 +13,16 @@ import {
 import {useGlobalState} from 'context';
 import {SyncOutlined} from '@ant-design/icons';
 import {useEffect, useState} from 'react';
-import {clusterApiUrl, Connection} from '@solana/web3.js';
+import {clusterApiUrl, Connection, Keypair, PublicKey} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
 import {DollarCircleFilled} from '@ant-design/icons';
 import {Chart} from './Chart';
 import Wallet from '@project-serum/sol-wallet-adapter';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
-import {SwapClient} from '@figment-pyth/lib/swap';
+// import {SwapClient} from '@figment-pyth/lib/swap';
+import {JupiterProvider, useJupiter} from '@jup-ag/react-hook';
+import {CustomWallet} from '@figment-pyth/lib/wallet';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
@@ -58,38 +60,139 @@ const useExtendedWallet = () => {
 };
 
 const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112';
-const USDC_MINT_ADDRESS = '';
+const SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt';
+const USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+const OrderBookWrapper: React.FC = ({children}) => {
+  const wallet = useWallet();
+  return (
+    <JupiterProvider
+      cluster={SOLANA_NETWORKS.DEVNET}
+      connection={connection}
+      userPublicKey={wallet.publicKey || undefined}
+    >
+      {children}
+    </JupiterProvider>
+  );
+};
+
+const OrderBook = () => {
+  return (
+    <OrderBookWrapper>
+      <Exchange />
+    </OrderBookWrapper>
+  );
+};
+
+const useOrderBook = (wallet: CustomWallet) => {
+  const [inputMint] = useState<PublicKey>(new PublicKey(SOL_MINT_ADDRESS));
+  const [outputMint] = useState<PublicKey>(new PublicKey(USDC_MINT_ADDRESS));
+  // const USDC_MINT_ADDRESS = '';
+  const jupiterAtoB = useJupiter({
+    amount: 1 * 10 ** 6, // raw input amount of tokens
+    inputMint,
+    outputMint,
+    slippage: 1, // 1% slippage
+    debounceTime: 250, // debounce ms time before refresh
+  });
+
+  // const jupiterBtoA = useJupiter({
+  //   amount: 1 * 10 ** 6, // raw input amount of tokens
+  //   outputMint,
+  //   inputMint,
+  //   slippage: 1, // 1% slippage
+  //   debounceTime: 250, // debounce ms time before refresh
+  // });
+
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  const buy = async () => {
+    if (jupiterAtoB?.routes && jupiterAtoB.routes.length > 0) {
+      await jupiterAtoB.exchange({
+        wallet,
+        route: jupiterAtoB?.routes[0],
+        confirmationWaiterFactory: async (txid) => {
+          console.log('sending transaction');
+          await connection.confirmTransaction(txid);
+          console.log('confirmed transaction');
+
+          return await connection.getTransaction(txid, {
+            commitment: 'confirmed',
+          });
+        },
+      });
+    } else {
+      console.log("can't buy");
+    }
+  };
+
+  const sell = () => {
+    console.log('sell');
+    // await jupiter.exchange({
+    //   wallet,
+    //   route,
+    //   confirmationWaiterFactory: async (txid) => {
+    //     console.log('sending transaction');
+    //     await connection.confirmTransaction(txid);
+    //     console.log('confirmed transaction');
+
+    //     return await connection.getTransaction(txid, {
+    //       commitment: 'confirmed',
+    //     });
+    //   },
+    // });
+  };
+  return {
+    buy,
+    sell,
+  };
+};
+
+const _account = Keypair.fromSecretKey(
+  new Uint8Array([
+    175, 193, 241, 226, 223, 32, 155, 13, 1, 120, 157, 36, 15, 39, 141, 146,
+    197, 180, 138, 112, 167, 209, 70, 94, 103, 202, 166, 62, 81, 18, 143, 49,
+    125, 253, 127, 53, 71, 38, 254, 214, 30, 170, 71, 69, 80, 46, 52, 76, 101,
+    246, 34, 16, 96, 4, 164, 39, 220, 88, 184, 201, 138, 180, 181, 238,
+  ]),
+);
 
 const Exchange = () => {
   const {state, dispatch} = useGlobalState();
 
   // Fake wallet for testing.
-  // const [wallet, setWallet] = useState<FakeWallet>({
-  //   sol_balance: 100,
-  //   usdc_balance: 10000,
-  // });
-  const wallet = useWallet();
-
+  const [wallet, setWallet] = useState<FakeWallet>({
+    sol_balance: 100,
+    usdc_balance: 10000,
+  });
+  // const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
+  const _wallet = useWallet();
+  const {buy, sell} = useOrderBook(_wallet as unknown as CustomWallet);
   // const [swap, setSwap] = useState<SwapClient | null>(null);
   useEffect(() => {
     async function _init(): Promise<void> {
-      await SwapClient.initialize(
-        connection,
-        SOLANA_NETWORKS.DEVNET,
-        wallet.publicKey,
-      );
+      // const _swapClient = await SwapClient.initialize(
+      //   connection,
+      //   SOLANA_NETWORKS.DEVNET,
+      //   _account,
+      //   SOL_MINT_ADDRESS,
+      //   SERUM_MINT_ADDRESS,
+      // );
+      // setSwapClient(_swapClient);
     }
   }, [wallet]);
+
   // state for tracking user worth with current Market Price.
   const [worth, setWorth] = useState({initial: 0, current: 0});
 
   // Reset the wallet to the initial state.
   const resetWallet = (sol_amount = 10) => {
     if (!price) return;
-    setWallet({
-      sol_balance: sol_amount,
-      usdc_balance: sol_amount * price,
-    });
+    // setWallet({
+    //   sol_balance: sol_amount,
+    //   usdc_balance: sol_amount * price,
+    // });
     const worth = sol_amount * price * 2;
     setWorth({initial: worth, current: worth});
   };
@@ -354,4 +457,4 @@ const Exchange = () => {
   );
 };
 
-export default Exchange;
+export default OrderBook;
