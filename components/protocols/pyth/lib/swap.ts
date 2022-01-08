@@ -21,7 +21,7 @@ export interface Token {
   tags: string[]; // [ 'utility-token', 'capital-token' ]
 }
 
-class SwapClient {
+export class SwapClient {
   private jupiter: Jupiter;
 
   constructor(

@@ -20,6 +20,7 @@ import {Chart} from './Chart';
 import Wallet from '@project-serum/sol-wallet-adapter';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
+import {SwapClient} from '@figment-pyth/lib/swap';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
@@ -47,15 +48,38 @@ interface Order {
 
 const signalListener = new EventEmitter();
 
-const Exchange = () => {
-  const {state, dispatch} = useGlobalState();
-  // const {wallet: _wallet, provider} = useProviderAndWallet();
-
-  // Fake wallet for testing.
+const useExtendedWallet = () => {
   const [wallet, setWallet] = useState<FakeWallet>({
     sol_balance: 100,
     usdc_balance: 10000,
   });
+
+  const [worth, setWorth] = useState({initial: 0, current: 0});
+};
+
+const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112';
+const USDC_MINT_ADDRESS = '';
+
+const Exchange = () => {
+  const {state, dispatch} = useGlobalState();
+
+  // Fake wallet for testing.
+  // const [wallet, setWallet] = useState<FakeWallet>({
+  //   sol_balance: 100,
+  //   usdc_balance: 10000,
+  // });
+  const wallet = useWallet();
+
+  // const [swap, setSwap] = useState<SwapClient | null>(null);
+  useEffect(() => {
+    async function _init(): Promise<void> {
+      await SwapClient.initialize(
+        connection,
+        SOLANA_NETWORKS.DEVNET,
+        wallet.publicKey,
+      );
+    }
+  }, [wallet]);
   // state for tracking user worth with current Market Price.
   const [worth, setWorth] = useState({initial: 0, current: 0});
 
