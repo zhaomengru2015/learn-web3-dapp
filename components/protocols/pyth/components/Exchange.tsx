@@ -9,6 +9,7 @@ import {
   InputNumber,
   Table,
   Row,
+  Input,
 } from 'antd';
 import {useGlobalState} from 'context';
 import {SyncOutlined} from '@ant-design/icons';
@@ -17,27 +18,28 @@ import {clusterApiUrl, Connection, Keypair, PublicKey} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
 import {DollarCircleFilled} from '@ant-design/icons';
 import {Chart} from './Chart';
-import Wallet from '@project-serum/sol-wallet-adapter';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
-// import {SwapClient} from '@figment-pyth/lib/swap';
-import {JupiterProvider, useJupiter} from '@jup-ag/react-hook';
-import {CustomWallet} from '@figment-pyth/lib/wallet';
+import {JupiterProvider} from '@jup-ag/react-hook';
+import {useExtendedWallet} from '@figment-pyth/lib/wallet';
+import {SwapClient} from '@figment-pyth/lib/swap';
+import {useConnection, useWallet} from '@solana/wallet-adapter-react';
+import {
+  WalletDisconnectButton,
+  WalletMultiButton,
+} from '@solana/wallet-adapter-react-ui';
+import _ from 'lodash';
+import Form from 'antd/lib/form/Form';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
 const pythConnection = new PythConnection(connection, pythPublicKey);
 
-let _wallet: Wallet | null = null;
-const useWallet = (): Wallet => {
-  if (_wallet) return _wallet;
-  _wallet = new Wallet('https://www.sollet.io', SOLANA_NETWORKS.DEVNET);
-  return _wallet;
-};
-
-interface FakeWallet {
-  sol_balance: number;
-  usdc_balance: number;
+enum tokens {
+  SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112',
+  SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt',
+  USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 }
 
 interface Order {
@@ -50,25 +52,17 @@ interface Order {
 
 const signalListener = new EventEmitter();
 
-const useExtendedWallet = () => {
-  const [wallet, setWallet] = useState<FakeWallet>({
-    sol_balance: 100,
-    usdc_balance: 10000,
-  });
-
-  const [worth, setWorth] = useState({initial: 0, current: 0});
-};
-
 const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112';
 const SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt';
 const USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 const OrderBookWrapper: React.FC = ({children}) => {
+  const {connection} = useConnection();
   const wallet = useWallet();
   return (
     <JupiterProvider
-      cluster={SOLANA_NETWORKS.DEVNET}
+      cluster={SOLANA_NETWORKS.MAINNET}
       connection={connection}
       userPublicKey={wallet.publicKey || undefined}
     >
@@ -85,69 +79,71 @@ const OrderBook = () => {
   );
 };
 
-const useOrderBook = (wallet: CustomWallet) => {
-  const [inputMint] = useState<PublicKey>(new PublicKey(SOL_MINT_ADDRESS));
-  const [outputMint] = useState<PublicKey>(new PublicKey(USDC_MINT_ADDRESS));
-  // const USDC_MINT_ADDRESS = '';
-  const jupiterAtoB = useJupiter({
-    amount: 1 * 10 ** 6, // raw input amount of tokens
-    inputMint,
-    outputMint,
-    slippage: 1, // 1% slippage
-    debounceTime: 250, // debounce ms time before refresh
-  });
+// const useOrderBook = (wallet: CustomWallet) => {
+//   const [inputMint] = useState<PublicKey>(new PublicKey(SOL_MINT_ADDRESS));
+//   const [outputMint] = useState<PublicKey>(new PublicKey(USDC_MINT_ADDRESS));
+//   // const USDC_MINT_ADDRESS = '';
+//   const jupiterAtoB = useJupiter({
+//     amount: 0.1 * 10 ** 8, // raw input amount of tokens
+//     inputMint,
+//     outputMint,
+//     slippage: 1, // 1% slippage
+//     debounceTime: 250, // debounce ms time before refresh
+//   });
 
-  // const jupiterBtoA = useJupiter({
-  //   amount: 1 * 10 ** 6, // raw input amount of tokens
-  //   outputMint,
-  //   inputMint,
-  //   slippage: 1, // 1% slippage
-  //   debounceTime: 250, // debounce ms time before refresh
-  // });
+//   // const jupiterBtoA = useJupiter({
+//   //   amount: 1 * 10 ** 6, // raw input amount of tokens
+//   //   outputMint,
+//   //   inputMint,
+//   //   slippage: 1, // 1% slippage
+//   //   debounceTime: 250, // debounce ms time before refresh
+//   // });
 
-  const [orders, setOrders] = useState<Order[]>([]);
+//   const [orders, setOrders] = useState<Order[]>([]);
 
-  const buy = async () => {
-    if (jupiterAtoB?.routes && jupiterAtoB.routes.length > 0) {
-      await jupiterAtoB.exchange({
-        wallet,
-        route: jupiterAtoB?.routes[0],
-        confirmationWaiterFactory: async (txid) => {
-          console.log('sending transaction');
-          await connection.confirmTransaction(txid);
-          console.log('confirmed transaction');
+//   const buy = async () => {
+//     jupiterAtoB.refresh();
+//     console.log(jupiterAtoB);
+//     if (jupiterAtoB?.routes && jupiterAtoB.routes.length > 0) {
+//       await jupiterAtoB.exchange({
+//         wallet,
+//         route: jupiterAtoB?.routes[0],
+//         confirmationWaiterFactory: async (txid) => {
+//           console.log('sending transaction');
+//           await connection.confirmTransaction(txid);
+//           console.log('confirmed transaction');
 
-          return await connection.getTransaction(txid, {
-            commitment: 'confirmed',
-          });
-        },
-      });
-    } else {
-      console.log("can't buy");
-    }
-  };
+//           return await connection.getTransaction(txid, {
+//             commitment: 'confirmed',
+//           });
+//         },
+//       });
+//     } else {
+//       console.log("can't buy");
+//     }
+//   };
 
-  const sell = () => {
-    console.log('sell');
-    // await jupiter.exchange({
-    //   wallet,
-    //   route,
-    //   confirmationWaiterFactory: async (txid) => {
-    //     console.log('sending transaction');
-    //     await connection.confirmTransaction(txid);
-    //     console.log('confirmed transaction');
+//   const sell = () => {
+//     console.log('sell');
+//     // await jupiter.exchange({
+//     //   wallet,
+//     //   route,
+//     //   confirmationWaiterFactory: async (txid) => {
+//     //     console.log('sending transaction');
+//     //     await connection.confirmTransaction(txid);
+//     //     console.log('confirmed transaction');
 
-    //     return await connection.getTransaction(txid, {
-    //       commitment: 'confirmed',
-    //     });
-    //   },
-    // });
-  };
-  return {
-    buy,
-    sell,
-  };
-};
+//     //     return await connection.getTransaction(txid, {
+//     //       commitment: 'confirmed',
+//     //     });
+//     //   },
+//     // });
+//   };
+//   return {
+//     buy,
+//     sell,
+//   };
+// };
 
 const _account = Keypair.fromSecretKey(
   new Uint8Array([
@@ -158,50 +154,63 @@ const _account = Keypair.fromSecretKey(
   ]),
 );
 
+const useSwap = (keyPair: Keypair | undefined) => {
+  const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
+
+  useEffect(() => {
+    async function _init(key: Keypair): Promise<void> {
+      const _swapClient = await SwapClient.initialize(
+        connection,
+        // new Connection(clusterApiUrl('devnet'), 'confirmed'),
+        SOLANA_NETWORKS.MAINNET,
+        key,
+        SOL_MINT_ADDRESS,
+        USDC_MINT_ADDRESS,
+      );
+      setSwapClient(_swapClient);
+    }
+    if (keyPair) {
+      _init(keyPair);
+    }
+  }, [keyPair]);
+};
+
 const Exchange = () => {
   const {state, dispatch} = useGlobalState();
+  const {connection} = useConnection();
 
-  // Fake wallet for testing.
-  const [wallet, setWallet] = useState<FakeWallet>({
-    sol_balance: 100,
-    usdc_balance: 10000,
-  });
-  // const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
-  const _wallet = useWallet();
-  const {buy, sell} = useOrderBook(_wallet as unknown as CustomWallet);
-  // const [swap, setSwap] = useState<SwapClient | null>(null);
-  useEffect(() => {
-    async function _init(): Promise<void> {
-      // const _swapClient = await SwapClient.initialize(
-      //   connection,
-      //   SOLANA_NETWORKS.DEVNET,
-      //   _account,
-      //   SOL_MINT_ADDRESS,
-      //   SERUM_MINT_ADDRESS,
-      // );
-      // setSwapClient(_swapClient);
-    }
-  }, [wallet]);
+  const [useMock, setUseMock] = useState(false);
+  const {setSecretKey, keyPair, balance, addOrder, orderBook, resetWallet} =
+    useExtendedWallet(useMock);
 
-  // state for tracking user worth with current Market Price.
-  const [worth, setWorth] = useState({initial: 0, current: 0});
-
-  // Reset the wallet to the initial state.
-  const resetWallet = (sol_amount = 10) => {
-    if (!price) return;
-    // setWallet({
-    //   sol_balance: sol_amount,
-    //   usdc_balance: sol_amount * price,
-    // });
-    const worth = sol_amount * price * 2;
-    setWorth({initial: worth, current: worth});
-  };
   // amount of Ema to buy/sell signal.
   const [yieldExpectation, setYield] = useState<number>(0.001);
   const [orderSize, setOrderSize] = useState<number>(20); // USDC
   const [price, setPrice] = useState<number | undefined>(undefined);
   const [symbol, setSymbol] = useState<string | undefined>(undefined);
-  const [orderBook, setOrderbook] = useState<Order[]>([]);
+
+  const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
+  useEffect(() => {
+    async function _init(key: Keypair): Promise<void> {
+      const _swapClient = await SwapClient.initialize(
+        connection,
+        // new Connection(clusterApiUrl('devnet'), 'confirmed'),
+        SOLANA_NETWORKS.MAINNET,
+        key,
+        SOL_MINT_ADDRESS,
+        USDC_MINT_ADDRESS,
+      );
+      setSwapClient(_swapClient);
+    }
+    if (keyPair) {
+      _init(keyPair);
+    }
+  }, [keyPair]);
+
+  // state for tracking user worth with current Market Price.
+  const [worth, setWorth] = useState({initial: 0, current: 0});
+
+  // Reset the wallet to the initial state.
 
   useEffect(() => {
     if (price) {
@@ -210,57 +219,64 @@ const Exchange = () => {
       });
     }
     // update the current worth each price update.
-    const currentWorth = wallet?.sol_balance * price! + wallet.usdc_balance;
+    const currentWorth = balance?.sol_balance * price! + balance.usdc_balance;
     setWorth({...worth, current: currentWorth});
   }, [price, setPrice]);
 
   useEffect(() => {
     signalListener.once('*', () => {
-      resetWallet();
+      // resetWallet();
     });
-    const buyHandler = signalListener.on('buy', (price: number) => {
-      if (wallet.usdc_balance <= orderSize) return; // not enough balance
-      setOrderbook((_orderBook) => [
-        {
-          side: 'buy',
-          size: orderSize,
-          price: price,
-          fromToken: 'usdc',
-          toToken: 'sol',
-        },
-        ..._orderBook,
-      ]);
-      const solChange = orderSize / price!;
+    const buyHandler = signalListener.on('buy', async (price: number) => {
+      // if (wallet.usdc_balance <= orderSize) return; // not enough balance
+      // await swapClient?.buy(orderSize);
+      addOrder({
+        side: 'buy',
+        size: orderSize,
+        price: price,
+        fromToken: 'usdc',
+        toToken: 'sol',
+      });
+      // setOrderbook((_orderBook) => [
+      //   {
+      //     side: 'buy',
+      //     size: orderSize,
+      //     price: price,
+      //     fromToken: 'usdc',
+      //     toToken: 'sol',
+      //   },
+      //   ..._orderBook,
+      // ]);
+      // const solChange = orderSize / price!;
 
-      setWallet((_wallet) => ({
-        sol_balance: _wallet.sol_balance + solChange,
-        usdc_balance: _wallet.usdc_balance - orderSize,
-      }));
+      // setWallet((_wallet) => ({
+      //   sol_balance: _wallet.sol_balance + solChange,
+      //   usdc_balance: _wallet.usdc_balance - orderSize,
+      // }));
     });
 
-    const sellHandler = signalListener.on('sell', (price: number) => {
+    const sellHandler = signalListener.on('sell', async (price: number) => {
       const orderSizeSol = orderSize / price;
-      if (wallet.sol_balance <= orderSizeSol) return; // not enough balance
-      setOrderbook((_orderBook) => [
-        {
-          side: 'sell',
-          size: orderSizeSol,
-          price: price,
-          fromToken: 'sol',
-          toToken: 'usdc',
-        },
-        ..._orderBook,
-      ]);
+      // if (wallet.sol_balance <= orderSizeSol) return; // not enough balance
+      // await swapClient?.sell(orderSizeSol);
+      addOrder({
+        side: 'sell',
+        size: orderSizeSol,
+        price: price,
+        fromToken: 'sol',
+        toToken: 'usdc',
+      });
+      // setOrderbook((_orderBook) => [{}, ..._orderBook]);
 
-      setWallet((_wallet) => ({
-        sol_balance: _wallet.sol_balance - orderSizeSol,
-        usdc_balance: _wallet.usdc_balance + orderSizeSol * price!,
-      }));
+      // setWallet((_wallet) => ({
+      //   sol_balance: _wallet.sol_balance - orderSizeSol,
+      //   usdc_balance: _wallet.usdc_balance + orderSizeSol * price!,
+      // }));
     });
     return () => {
       signalListener.removeAllListeners();
     };
-  }, [yieldExpectation, orderSize, wallet]);
+  }, [yieldExpectation, orderSize]);
 
   const [data, setData] = useState<any[]>([]);
   const getPythData = async (checked: boolean) => {
@@ -378,20 +394,41 @@ const Exchange = () => {
         <Space direction="horizontal" size="large">
           <Card
             title="wallet"
-            extra={<Button onClick={() => resetWallet()}>Reset Wallet</Button>}
+            extra={
+              <>
+                <Switch
+                  checked={useMock}
+                  onChange={(val) => setUseMock(val)}
+                  checkedChildren={'Mock'}
+                  unCheckedChildren={'Mainnet'}
+                />
+                <Button onClick={() => resetWallet()} disabled={!useMock}>
+                  Reset Wallet
+                </Button>
+              </>
+            }
           >
+            {!useMock ? (
+              <Row>
+                <label htmlFor="secretKey">Wallet Secretkey</label>
+                <Input
+                  id="secretKey"
+                  type="password"
+                  onChange={(e) => setSecretKey(e.target.value)}
+                />
+              </Row>
+            ) : null}
             <Row>
               <Col span={12}>
                 <Statistic
-                  value={wallet?.sol_balance}
+                  value={balance?.sol_balance}
                   precision={6}
                   title={'SOL'}
                 />
               </Col>
-
               <Col span={12}>
                 <Statistic
-                  value={wallet?.usdc_balance}
+                  value={balance?.usdc_balance}
                   precision={6}
                   title={'USDC'}
                 />
@@ -399,7 +436,7 @@ const Exchange = () => {
 
               <Col span={12}>
                 <Statistic
-                  value={wallet?.sol_balance * price! + wallet.usdc_balance}
+                  value={balance?.sol_balance * price! + balance.usdc_balance}
                   precision={6}
                   title={'TOTAL WORTH'}
                 />
@@ -416,6 +453,10 @@ const Exchange = () => {
             </Row>
           </Card>
         </Space>
+        <Card>
+          {/* <Button onClick={async () => await buy()}>Buy</Button> */}
+          <Button onClick={async () => await swapClient?.buy(0.1)}>Buy</Button>
+        </Card>
         <Card>
           <Chart data={data} />
         </Card>

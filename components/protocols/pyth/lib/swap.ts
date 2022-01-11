@@ -91,13 +91,22 @@ export class SwapClient {
   }
 
   async buy(size: number) {
+    console.log('Getting routes', {
+      inputToken: this.tokenA,
+      outputToken: this.tokenB,
+      inputAmount: size, // 1 unit in UI
+      slippage: 1, // 1% slippage
+    });
+
     const routes = await this.getRoutes({
       inputToken: this.tokenA,
       outputToken: this.tokenB,
       inputAmount: size, // 1 unit in UI
       slippage: 1, // 1% slippage
     });
+    console.log('Routes:', routes);
     if (routes?.routesInfos) {
+      console.log('Best Route', routes.routesInfos[0]);
       this.executeSwap(routes?.routesInfos[0]);
     } else {
       throw new Error('Route not found');
@@ -119,6 +128,7 @@ export class SwapClient {
   }
 
   async executeSwap(route: RouteInfo) {
+    console.log(this.jupiter);
     // Prepare execute exchange
     const {execute} = await this.jupiter.exchange({
       route,
