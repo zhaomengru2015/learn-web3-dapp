@@ -12,7 +12,7 @@ import {
   Input,
 } from 'antd';
 import {useGlobalState} from 'context';
-import {SyncOutlined} from '@ant-design/icons';
+import {SoundTwoTone, SyncOutlined} from '@ant-design/icons';
 import {useEffect, useState} from 'react';
 import {clusterApiUrl, Connection, Keypair, PublicKey} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
@@ -25,7 +25,7 @@ import {useExtendedWallet} from '@figment-pyth/lib/wallet';
 import {SwapClient} from '@figment-pyth/lib/swap';
 import {useConnection, useWallet} from '@solana/wallet-adapter-react';
 import _ from 'lodash';
-import Form from 'antd/lib/form/Form';
+import * as Rx from 'rxjs';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
@@ -41,7 +41,6 @@ enum tokens {
 interface Order {
   side: 'buy' | 'sell';
   size: number;
-  price: number;
   fromToken: string;
   toToken: string;
 }
@@ -78,7 +77,7 @@ const Exchange = () => {
   const {state, dispatch} = useGlobalState();
   const {connection} = useConnection();
 
-  const [useMock, setUseMock] = useState(false);
+  const [useMock, setUseMock] = useState(true);
   const {setSecretKey, keyPair, balance, addOrder, orderBook, resetWallet} =
     useExtendedWallet(useMock);
 
@@ -126,46 +125,44 @@ const Exchange = () => {
     signalListener.once('*', () => {
       // resetWallet();
     });
-    const buyHandler = signalListener.on('buy', async (price: number) => {
-      // if (wallet.usdc_balance <= orderSize) return; // not enough balance
-      // await swapClient?.buy(orderSize);
-      addOrder({
-        side: 'buy',
-        size: orderSize,
-        price: price,
-        fromToken: 'usdc',
-        toToken: 'sol',
+    const buy = Rx.fromEvent(signalListener, 'buy').pipe(
+      Rx.map((v: any) => orderSize),
+    );
+    const sell = Rx.fromEvent(signalListener, 'sell').pipe(
+      Rx.map((v: any) => -orderSize),
+    );
+    Rx.merge(buy, sell)
+      .pipe(
+        Rx.bufferTime(3000),
+        Rx.map((orders: number[]) => {
+          return orders.reduce((prev, curr) => prev + curr, 0); // sum of the orders in the buffer.
+        }),
+        Rx.filter((v) => v !== 0),
+        Rx.map((val: number) => {
+          if (val > 0) {
+            // buy.
+            return {
+              side: 'buy',
+              size: val,
+              fromToken: 'usdc',
+              toToken: 'sol',
+            };
+          } else if (val <= 0) {
+            return {
+              side: 'sell',
+              size: Math.abs(val),
+              fromToken: 'sol',
+              toToken: 'usdc',
+            };
+          }
+        }),
+      )
+      .subscribe((v: any) => {
+        addOrder({
+          ...v,
+          price: price!,
+        });
       });
-      // setOrderbook((_orderBook) => [
-      //   {
-      //     side: 'buy',
-      //     size: orderSize,
-      //     price: price,
-      //     fromToken: 'usdc',
-      //     toToken: 'sol',
-      //   },
-      //   ..._orderBook,
-      // ]);
-      // const solChange = orderSize / price!;
-
-      // setWallet((_wallet) => ({
-      //   sol_balance: _wallet.sol_balance + solChange,
-      //   usdc_balance: _wallet.usdc_balance - orderSize,
-      // }));
-    });
-
-    const sellHandler = signalListener.on('sell', async (price: number) => {
-      const orderSizeSol = orderSize / price;
-      // if (wallet.sol_balance <= orderSizeSol) return; // not enough balance
-      // await swapClient?.sell(orderSizeSol);
-      addOrder({
-        side: 'sell',
-        size: orderSizeSol,
-        price: price,
-        fromToken: 'sol',
-        toToken: 'usdc',
-      });
-    });
     return () => {
       signalListener.removeAllListeners();
     };
