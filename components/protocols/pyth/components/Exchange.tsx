@@ -12,18 +12,22 @@ import {
   Input,
 } from 'antd';
 import {useGlobalState} from 'context';
-import {SoundTwoTone, SyncOutlined} from '@ant-design/icons';
+import {SyncOutlined} from '@ant-design/icons';
 import {useEffect, useState} from 'react';
-import {clusterApiUrl, Connection, Keypair, PublicKey} from '@solana/web3.js';
+import {
+  Cluster,
+  clusterApiUrl,
+  Connection,
+  Keypair,
+  PublicKey,
+} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
 import {DollarCircleFilled} from '@ant-design/icons';
 import {Chart} from './Chart';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
-import {JupiterProvider} from '@jup-ag/react-hook';
 import {useExtendedWallet} from '@figment-pyth/lib/wallet';
 import {SwapClient} from '@figment-pyth/lib/swap';
-import {useConnection, useWallet} from '@solana/wallet-adapter-react';
 import _ from 'lodash';
 import * as Rx from 'rxjs';
 
@@ -52,34 +56,13 @@ const SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt';
 const USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-const useSwap = (keyPair: Keypair | undefined) => {
-  const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
-
-  useEffect(() => {
-    async function _init(key: Keypair): Promise<void> {
-      const _swapClient = await SwapClient.initialize(
-        connection,
-        // new Connection(clusterApiUrl('devnet'), 'confirmed'),
-        SOLANA_NETWORKS.MAINNET,
-        key,
-        SOL_MINT_ADDRESS,
-        USDC_MINT_ADDRESS,
-      );
-      setSwapClient(_swapClient);
-    }
-    if (keyPair) {
-      _init(keyPair);
-    }
-  }, [keyPair]);
-};
-
 const Exchange = () => {
   const {state, dispatch} = useGlobalState();
-  const {connection} = useConnection();
+  const [cluster, setCluster] = useState<Cluster>('devnet');
 
   const [useMock, setUseMock] = useState(true);
   const {setSecretKey, keyPair, balance, addOrder, orderBook, resetWallet} =
-    useExtendedWallet(useMock);
+    useExtendedWallet(useMock, cluster);
 
   // amount of Ema to buy/sell signal.
   const [yieldExpectation, setYield] = useState<number>(0.001);
@@ -91,9 +74,9 @@ const Exchange = () => {
   useEffect(() => {
     async function _init(key: Keypair): Promise<void> {
       const _swapClient = await SwapClient.initialize(
-        connection,
-        // new Connection(clusterApiUrl('devnet'), 'confirmed'),
-        SOLANA_NETWORKS.MAINNET,
+        // connection,
+        new Connection(clusterApiUrl('devnet'), 'confirmed'),
+        SOLANA_NETWORKS.DEVNET,
         key,
         SOL_MINT_ADDRESS,
         USDC_MINT_ADDRESS,
@@ -290,8 +273,18 @@ const Exchange = () => {
                   checked={useMock}
                   onChange={(val) => setUseMock(val)}
                   checkedChildren={'Mock'}
-                  unCheckedChildren={'Mainnet'}
+                  unCheckedChildren={'Real'}
                 />
+                {!useMock ? (
+                  <Switch
+                    checked={cluster === 'mainnet-beta'}
+                    onChange={(val) =>
+                      setCluster(val ? 'mainnet-beta' : 'devnet')
+                    }
+                    checkedChildren={'Mainnet'}
+                    unCheckedChildren={'Devnet'}
+                  />
+                ) : null}
                 <Button onClick={() => resetWallet()} disabled={!useMock}>
                   Reset Wallet
                 </Button>

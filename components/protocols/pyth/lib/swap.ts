@@ -26,8 +26,8 @@ export class SwapClient {
 
   constructor(
     jupiter: Jupiter,
-    readonly tokenA: Token,
-    readonly tokenB: Token,
+    public readonly tokenA: Token,
+    public readonly tokenB: Token,
   ) {
     this.jupiter = jupiter;
   }
@@ -107,7 +107,7 @@ export class SwapClient {
     console.log('Routes:', routes);
     if (routes?.routesInfos) {
       console.log('Best Route', routes.routesInfos[0]);
-      this.executeSwap(routes?.routesInfos[0]);
+      return this.executeSwap(routes?.routesInfos[0]);
     } else {
       throw new Error('Route not found');
     }
@@ -121,14 +121,13 @@ export class SwapClient {
       slippage: 1, // 1% slippage
     });
     if (routes?.routesInfos) {
-      this.executeSwap(routes?.routesInfos[0]);
+      return this.executeSwap(routes?.routesInfos[0]);
     } else {
       throw new Error('Route not found');
     }
   }
 
   async executeSwap(route: RouteInfo) {
-    console.log(this.jupiter);
     // Prepare execute exchange
     const {execute} = await this.jupiter.exchange({
       route,
@@ -147,5 +146,6 @@ export class SwapClient {
         `inputAmount=${swapResult.inputAmount} outputAmount=${swapResult.outputAmount}`,
       );
     }
+    return swapResult;
   }
 }
