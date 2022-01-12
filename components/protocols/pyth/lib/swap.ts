@@ -20,8 +20,10 @@ export interface Token {
   logoURI: string; // 'https://i.ibb.co/pKTWrwP/true.jpg',
   tags: string[]; // [ 'utility-token', 'capital-token' ]
 }
-
-export class SwapClient {
+/**
+ * Currently it's only works with mainnet.
+ */
+export class JupiterSwapClient {
   private jupiter: Jupiter;
 
   constructor(
@@ -48,7 +50,7 @@ export class SwapClient {
       throw new Error('Token not found');
     }
 
-    return new SwapClient(jupiter, inputToken, outputToken);
+    return new JupiterSwapClient(jupiter, inputToken, outputToken);
   }
 
   async getRoutes({

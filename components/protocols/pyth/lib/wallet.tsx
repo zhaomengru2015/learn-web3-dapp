@@ -1,16 +1,18 @@
 import {SwapResult} from '@jup-ag/core';
-import {Cluster, clusterApiUrl} from '@solana/web3.js';
+import {Cluster, clusterApiUrl, Connection} from '@solana/web3.js';
 import {Keypair, TransactionError} from '@solana/web3.js';
 import axios from 'axios';
 import bs58 from 'bs58';
 import _ from 'lodash';
 import {useEffect, useState} from 'react';
 import useSWR from 'swr';
-import {SwapClient} from './swap';
+import {SOLANA_NETWORKS} from 'types';
+import {JupiterSwapClient} from './swap';
 
 interface WalletBalance {
   sol_balance: number;
   usdc_balance: number;
+  orca_balance: number;
 }
 
 interface Order {
@@ -21,7 +23,9 @@ interface Order {
   toToken: string;
 }
 
+const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112';
 const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const ORCA_MINT_ADDRESS = 'orcarKHSqC5CDDsGbho8GKvwExejWHxTqGzXgcewB9L';
 
 export const useExtendedWallet = (useMock = false, cluster: Cluster) => {
   const [secretKey, setSecretKey] = useState<string | undefined>(undefined);
@@ -31,12 +35,16 @@ export const useExtendedWallet = (useMock = false, cluster: Cluster) => {
       let arr = Uint8Array.from(bs58.decode(secretKey));
       const key = Keypair.fromSecretKey(arr);
       setKeyPair(key);
+    } else {
+      const temp = Keypair.generate();
+      setKeyPair(temp);
     }
   }, [secretKey]);
 
   const [balance, setBalance] = useState<WalletBalance>({
     sol_balance: 100,
     usdc_balance: 10000,
+    orca_balance: 0,
   });
 
   const [orderBook, setOrderbook] = useState<Order[]>([]);
@@ -60,11 +68,30 @@ export const useExtendedWallet = (useMock = false, cluster: Cluster) => {
         data,
         'data[1].result.value[0]account.data.parsed.info.tokenAmount.uiAmount',
       );
-      setBalance({sol_balance, usdc_balance});
+      const orca_balance = _.get(
+        data,
+        'data[2].result.value[0]account.data.parsed.info.tokenAmount.uiAmount',
+      );
+      setBalance({sol_balance, usdc_balance, orca_balance});
     }
   }, [data]);
 
-  const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
+  const [swapClient, setSwapClient] = useState<JupiterSwapClient | null>(null);
+  useEffect(() => {
+    async function _init(key: Keypair): Promise<void> {
+      const _swapClient = await JupiterSwapClient.initialize(
+        new Connection(clusterApiUrl('mainnet-beta'), 'confirmed'),
+        SOLANA_NETWORKS.MAINNET,
+        key,
+        SOL_MINT_ADDRESS,
+        USDC_MINT_ADDRESS,
+      );
+      setSwapClient(_swapClient);
+    }
+    if (keyPair) {
+      _init(keyPair);
+    }
+  }, [keyPair]);
 
   const addOrder = async (order: Order) => {
     const extendedOrder: any = {
@@ -105,6 +132,7 @@ export const useExtendedWallet = (useMock = false, cluster: Cluster) => {
       setBalance({
         sol_balance: params.sol_balance,
         usdc_balance: params.usdc_balance,
+        orca_balance: 0,
       });
     }
   };
@@ -129,7 +157,7 @@ const balanceFetcher = (keyPair: Keypair, cluster: Cluster) => () =>
     data: [
       {
         jsonrpc: '2.0',
-        id: 1,
+        id: 0,
         method: 'getBalance',
         params: [keyPair?.publicKey.toBase58()],
       },
@@ -140,7 +168,24 @@ const balanceFetcher = (keyPair: Keypair, cluster: Cluster) => () =>
         params: [
           keyPair?.publicKey.toBase58(),
           {
-            mint: USDC_MINT_ADDRESS,
+            mint:
+              cluster === 'mainnet-beta'
+                ? USDC_MINT_ADDRESS
+                : 'EmXq3Ni9gfudTiyNKzzYvpnQqnJEMRw2ttnVXoJXjLo1',
+          },
+          {
+            encoding: 'jsonParsed',
+          },
+        ],
+      },
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'getTokenAccountsByOwner',
+        params: [
+          keyPair?.publicKey.toBase58(),
+          {
+            mint: ORCA_MINT_ADDRESS,
           },
           {
             encoding: 'jsonParsed',

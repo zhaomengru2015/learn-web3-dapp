@@ -27,9 +27,12 @@ import {Chart} from './Chart';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
 import {useExtendedWallet} from '@figment-pyth/lib/wallet';
-import {SwapClient} from '@figment-pyth/lib/swap';
+import {JupiterSwapClient} from '@figment-pyth/lib/swap';
 import _ from 'lodash';
 import * as Rx from 'rxjs';
+
+import {getOrca, Network, OrcaPoolConfig} from '@orca-so/sdk';
+import Decimal from 'decimal.js';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
@@ -51,11 +54,6 @@ interface Order {
 
 const signalListener = new EventEmitter();
 
-const SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112';
-const SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt';
-const USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
-const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-
 const Exchange = () => {
   const {state, dispatch} = useGlobalState();
   const [cluster, setCluster] = useState<Cluster>('devnet');
@@ -70,23 +68,23 @@ const Exchange = () => {
   const [price, setPrice] = useState<number | undefined>(undefined);
   const [symbol, setSymbol] = useState<string | undefined>(undefined);
 
-  const [swapClient, setSwapClient] = useState<SwapClient | null>(null);
-  useEffect(() => {
-    async function _init(key: Keypair): Promise<void> {
-      const _swapClient = await SwapClient.initialize(
-        // connection,
-        new Connection(clusterApiUrl('devnet'), 'confirmed'),
-        SOLANA_NETWORKS.DEVNET,
-        key,
-        SOL_MINT_ADDRESS,
-        USDC_MINT_ADDRESS,
-      );
-      setSwapClient(_swapClient);
-    }
-    if (keyPair) {
-      _init(keyPair);
-    }
-  }, [keyPair]);
+  // const [swapClient, setSwapClient] = useState<JupiterSwapClient | null>(null);
+  // useEffect(() => {
+  //   async function _init(key: Keypair): Promise<void> {
+  //     const _swapClient = await JupiterSwapClient.initialize(
+  //       // connection,
+  //       new Connection(clusterApiUrl('devnet'), 'confirmed'),
+  //       SOLANA_NETWORKS.DEVNET,
+  //       key,
+  //       SOL_MINT_ADDRESS,
+  //       USDC_MINT_ADDRESS,
+  //     );
+  //     setSwapClient(_swapClient);
+  //   }
+  //   if (keyPair) {
+  //     // _init(keyPair);
+  //   }
+  // }, [keyPair]);
 
   // state for tracking user worth with current Market Price.
   const [worth, setWorth] = useState({initial: 0, current: 0});
@@ -233,6 +231,44 @@ const Exchange = () => {
       pythConnection.start();
     }
   };
+
+  const buySomeOrca = async () => {
+    const orca = getOrca(connection, Network.DEVNET);
+    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);
+    const solToken = orcaSolPool.getTokenB();
+    const solAmount = new Decimal(0.1);
+    const quote = await orcaSolPool.getQuote(solToken, solAmount);
+    const orcaAmount = quote.getMinOutputAmount();
+    console.log(
+      `Swap ${solAmount.toString()} SOL for at least ${orcaAmount.toNumber()} ORCA`,
+    );
+    const swapPayload = await orcaSolPool.swap(
+      keyPair!,
+      solToken,
+      solAmount,
+      orcaAmount,
+    );
+    const swapTxId = await swapPayload.execute();
+    console.log('Swapped:', swapTxId, '\n');
+
+    const orcaUSDCPool = orca.getPool(OrcaPoolConfig.ORCA_USDC);
+    const orcaToken = orcaUSDCPool.getTokenA();
+    const usdcQuote = await orcaUSDCPool.getQuote(orcaToken, orcaAmount);
+    const usdcAmount = usdcQuote.getMinOutputAmount();
+    const swapOrcaPayload = await orcaUSDCPool.swap(
+      keyPair!,
+      orcaToken,
+      orcaAmount,
+      usdcAmount,
+    );
+    console.log(
+      `Swap ${orcaAmount.toString()} ORCA for at least ${usdcAmount.toNumber()} USDC`,
+    );
+
+    const swapOrcaTxId = await swapOrcaPayload.execute();
+    console.log('Swapped:', swapOrcaTxId, '\n');
+    return [swapTxId, swapOrcaTxId];
+  };
   return (
     <Col>
       <Space direction="vertical" size="large">
@@ -284,10 +320,11 @@ const Exchange = () => {
                     checkedChildren={'Mainnet'}
                     unCheckedChildren={'Devnet'}
                   />
-                ) : null}
-                <Button onClick={() => resetWallet()} disabled={!useMock}>
-                  Reset Wallet
-                </Button>
+                ) : (
+                  <Button onClick={() => resetWallet()} disabled={!useMock}>
+                    Reset Wallet
+                  </Button>
+                )}
               </>
             }
           >
@@ -316,6 +353,13 @@ const Exchange = () => {
                   title={'USDC'}
                 />
               </Col>
+              <Col span={12}>
+                <Statistic
+                  value={balance?.orca_balance}
+                  precision={6}
+                  title={'ORCA'}
+                />
+              </Col>
 
               <Col span={12}>
                 <Statistic
@@ -338,7 +382,8 @@ const Exchange = () => {
         </Space>
         <Card>
           {/* <Button onClick={async () => await buy()}>Buy</Button> */}
-          <Button onClick={async () => await swapClient?.buy(0.1)}>Buy</Button>
+          {/* <Button onClick={async () => await swapClient?.buy(0.1)}>Buy</Button> */}
+          <Button onClick={async () => await buySomeOrca()}>Buy</Button>
         </Card>
         <Card>
           <Chart data={data} />
