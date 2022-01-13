@@ -22,6 +22,7 @@ import {Chart} from './Chart';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
 import {
+  ORCA_DECIMAL,
   SOL_DECIMAL,
   USDC_DECIMAL,
   useExtendedWallet,
@@ -79,7 +80,7 @@ const Exchange = () => {
     Rx.merge(buy, sell)
       .pipe(
         Rx.tap((v: any) => console.log(v)),
-        Rx.bufferTime(3000),
+        Rx.bufferTime(10000),
         Rx.map((orders: number[]) => {
           return orders.reduce((prev, curr) => prev + curr, 0); // sum of the orders in the buffer.
         }),
@@ -103,15 +104,15 @@ const Exchange = () => {
           }
         }),
       )
-      .subscribe((v: any) => {
-        addOrder({
+      .subscribe(async (v: any) => {
+        await addOrder({
           ...v,
         });
       });
     return () => {
       signalListener.removeAllListeners();
     };
-  }, [yieldExpectation, orderSizeUSDC]);
+  }, [yieldExpectation, orderSizeUSDC, useMock, cluster, keyPair]);
 
   const [data, setData] = useState<any[]>([]);
   const getPythData = async (checked: boolean) => {
@@ -195,7 +196,7 @@ const Exchange = () => {
       pythConnection.start();
     }
   };
-
+  console.log(orderBook);
   return (
     <Col>
       <Space direction="vertical" size="large">
@@ -256,14 +257,20 @@ const Exchange = () => {
             }
           >
             {!useMock ? (
-              <Row>
-                <label htmlFor="secretKey">Wallet Secretkey</label>
-                <Input
-                  id="secretKey"
-                  type="password"
-                  onChange={(e) => setSecretKey(e.target.value)}
-                />
-              </Row>
+              <>
+                <Row>
+                  <label htmlFor="secretKey">Wallet Public</label>
+                  {keyPair?.publicKey && keyPair.publicKey.toString()}
+                </Row>
+                <Row>
+                  <label htmlFor="secretKey">Wallet Secretkey</label>
+                  <Input
+                    id="secretKey"
+                    type="password"
+                    onChange={(e) => setSecretKey(e.target.value)}
+                  />
+                </Row>
+              </>
             ) : null}
             <Row>
               <Col span={12}>
@@ -279,7 +286,10 @@ const Exchange = () => {
                 />
               </Col>
               <Col span={12}>
-                <Statistic value={balance?.orca_balance} title={'ORCA'} />
+                <Statistic
+                  value={balance?.orca_balance / ORCA_DECIMAL}
+                  title={'ORCA'}
+                />
               </Col>
 
               <Col span={12}>
@@ -303,6 +313,32 @@ const Exchange = () => {
           </Card>
         </Space>
         <Card>
+          <Button
+            onClick={async () =>
+              await addOrder({
+                side: 'buy',
+                size: (balance.usdc_balance * 0.01) / USDC_DECIMAL,
+                fromToken: 'USDC',
+                toToken: 'SOL',
+              })
+            }
+          >
+            buy
+          </Button>
+          <Button
+            onClick={async () =>
+              await addOrder({
+                side: 'sell',
+                size: (balance.sol_balance * 0.01) / SOL_DECIMAL,
+                fromToken: 'SOL',
+                toToken: 'USDC',
+              })
+            }
+          >
+            sell
+          </Button>
+        </Card>
+        <Card>
           <Chart data={data} />
         </Card>
         <Card>
@@ -310,6 +346,27 @@ const Exchange = () => {
           <Table
             dataSource={orderBook}
             columns={[
+              {
+                title: 'Transactions',
+                dataIndex: 'txIds',
+                key: 'txIds',
+                render: (txIds, record) => {
+                  return (
+                    <>
+                      {txIds.map((txId: string) => (
+                        <a
+                          href={`https://solscan.io/tx/${txId}?cluster=${record.cluster}`}
+                          key={txId}
+                          target={'_blank'}
+                          rel="noreferrer"
+                        >
+                          {txId.substring(-1, 5)}
+                        </a>
+                      ))}
+                    </>
+                  );
+                },
+              },
               {
                 title: 'Side',
                 dataIndex: 'side',

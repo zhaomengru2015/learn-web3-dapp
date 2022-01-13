@@ -3,10 +3,10 @@ import {Keypair} from '@solana/web3.js';
 import axios from 'axios';
 import bs58 from 'bs58';
 import _ from 'lodash';
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import useSWR from 'swr';
 import {SOLANA_NETWORKS} from 'types';
-import {JupiterSwapClient, OrcaSwapClient} from './swap';
+import {JupiterSwapClient, OrcaSwapClient, SwapResult} from './swap';
 
 interface WalletBalance {
   sol_balance: number;
@@ -17,7 +17,6 @@ interface WalletBalance {
 interface Order {
   side: 'buy' | 'sell';
   size: number;
-  price: number;
   fromToken: string;
   toToken: string;
 }
@@ -28,6 +27,7 @@ const ORCA_MINT_ADDRESS = 'orcarKHSqC5CDDsGbho8GKvwExejWHxTqGzXgcewB9L';
 
 export const SOL_DECIMAL = 10 ** 9;
 export const USDC_DECIMAL = 10 ** 6;
+export const ORCA_DECIMAL = 10 ** 6;
 
 export const useExtendedWallet = (
   useMock = false,
@@ -70,7 +70,7 @@ export const useExtendedWallet = (
 
   useEffect(() => {
     if (data && !useMock) {
-      const sol_balance = _.get(data, 'data[0].result.value') / 10 ** 9;
+      const sol_balance = _.get(data, 'data[0].result.value');
       const usdc_balance = _.get(
         data,
         'data[1].result.value[0]account.data.parsed.info.tokenAmount.amount',
@@ -109,6 +109,7 @@ export const useExtendedWallet = (
       new Connection(clusterApiUrl('devnet'), 'confirmed'),
     );
     setOrcaSwapClient((c) => _orcaSwapClient);
+    return _orcaSwapClient;
   };
 
   const getJupiterSwapClient = async () => {
@@ -124,61 +125,83 @@ export const useExtendedWallet = (
     return _jupiterSwapClient;
   };
 
-  const addOrder = async (order: Order) => {
-    const extendedOrder: any = {
-      ...order,
+  const addMockOrder = async (order: Order): Promise<SwapResult> => {
+    const _jupiterSwapClient = await getJupiterSwapClient();
+
+    // TokenA === SOL
+    // TokenB === USDC
+    const routes = await _jupiterSwapClient?.getRoutes({
+      inputToken:
+        order.side === 'buy'
+          ? _jupiterSwapClient.tokenB
+          : _jupiterSwapClient.tokenA,
+      outputToken:
+        order.side === 'buy'
+          ? _jupiterSwapClient.tokenA
+          : _jupiterSwapClient.tokenB,
+      inputAmount: order.size,
+      slippage: 1,
+    });
+    const bestRoute = routes?.routesInfos[0];
+    const result = {
+      inAmount: bestRoute?.inAmount || 0,
+      outAmount: bestRoute?.outAmount || 0,
+      txIds: ['mockTransaction_XXXXX'],
     };
-    console.log('addOrder', extendedOrder, useMock, price);
-    if (useMock) {
-      const _jupiterSwapClient = await getJupiterSwapClient();
-      console.log(jupiterSwapClient?.tokenA);
 
-      // TokenA === SOL
-      // TokenB === USDC
-      const routes = await _jupiterSwapClient?.getRoutes({
-        inputToken:
-          order.side === 'buy'
-            ? _jupiterSwapClient.tokenB
-            : _jupiterSwapClient.tokenA,
-        outputToken:
-          order.side === 'buy'
-            ? _jupiterSwapClient.tokenA
-            : _jupiterSwapClient.tokenB,
-        inputAmount: order.size,
-        slippage: 1,
-      });
-      const bestRoute = routes?.routesInfos[0];
-      console.log(bestRoute);
-      extendedOrder['inAmount'] = bestRoute?.inAmount;
-      extendedOrder['outAmount'] = bestRoute?.outAmount;
-      extendedOrder['mock'] = true;
+    // fake the transaction change.
+    setBalance((previousBalance) => ({
+      ...previousBalance,
+      usdc_balance:
+        order.side === 'buy'
+          ? previousBalance.usdc_balance - result.inAmount
+          : previousBalance.usdc_balance + result.outAmount,
+      sol_balance:
+        order.side === 'buy'
+          ? previousBalance.sol_balance + result.outAmount
+          : previousBalance.sol_balance - result.inAmount,
+    }));
 
-      // fake the transaction change.
-      setBalance((previousBalance) => ({
-        ...previousBalance,
-        usdc_balance:
-          order.side === 'buy'
-            ? previousBalance.usdc_balance - extendedOrder.inAmount
-            : previousBalance.usdc_balance + extendedOrder.outAmount,
-        sol_balance:
-          order.side === 'buy'
-            ? previousBalance.sol_balance + extendedOrder.outAmount
-            : previousBalance.sol_balance - extendedOrder.inAmount,
-      }));
-    } else {
-      // let result;
-      // if (order.side === 'buy') {
-      //   result = await jupiterSwapClient?.buy(order.size);
-      // } else if (order.side === 'sell') {
-      //   result = await jupiterSwapClient?.sell(order.size);
-      // }
-      // extendedOrder['mock'] = false;
-    }
-
-    // extendedOrder.txId = result?.txId;
-
-    setOrderbook((_orderBook) => [extendedOrder, ..._orderBook]);
+    return result;
   };
+
+  const addOrder = useCallback(
+    async (order: Order) => {
+      console.log('addOrder', useMock, order, cluster);
+      let result: SwapResult;
+      if (useMock) {
+        result = await addMockOrder(order);
+      } else if (!useMock) {
+        if (cluster === 'devnet') {
+          console.log('HERE', cluster, useMock);
+          const _orcaClient = await getOrcaSwapClient();
+          if (order.side === 'buy') {
+            result = await _orcaClient?.buy(order.size)!;
+            console.log('result', result);
+          } else if (order.side === 'sell') {
+            console.log(_orcaClient);
+            result = await _orcaClient?.sell(order.size)!;
+          } else {
+            console.log('WTF');
+          }
+        } else if (cluster === 'mainnet-beta') {
+          console.log(jupiterSwapClient?.keypair.publicKey.toString());
+          const _jupiterSwapClient = await getJupiterSwapClient();
+          console.log(_jupiterSwapClient?.keypair.publicKey.toString());
+          if (order.side === 'buy') {
+            result = await _jupiterSwapClient?.buy(order.size);
+          } else if (order.side === 'sell') {
+            result = await _jupiterSwapClient?.sell(order.size);
+          }
+        }
+      }
+      if (result!) {
+        const extendedOrder = {...order, ...result};
+        setOrderbook((_orderBook) => [extendedOrder, ..._orderBook]);
+      }
+    },
+    [useMock, cluster, keyPair],
+  );
 
   const resetWallet = (params = {sol_balance: 10, usdc_balance: 1400}) => {
     if (!useMock) {
