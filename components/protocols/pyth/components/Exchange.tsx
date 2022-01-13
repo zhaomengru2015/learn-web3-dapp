@@ -10,47 +10,28 @@ import {
   Table,
   Row,
   Input,
+  Tag,
 } from 'antd';
 import {useGlobalState} from 'context';
 import {SyncOutlined} from '@ant-design/icons';
-import {useEffect, useState} from 'react';
-import {
-  Cluster,
-  clusterApiUrl,
-  Connection,
-  Keypair,
-  PublicKey,
-} from '@solana/web3.js';
+import React, {useEffect, useState} from 'react';
+import {Cluster, clusterApiUrl, Connection} from '@solana/web3.js';
 import {PythConnection, getPythProgramKeyForCluster} from '@pythnetwork/client';
 import {DollarCircleFilled} from '@ant-design/icons';
 import {Chart} from './Chart';
 import {EventEmitter} from 'events';
 import {PYTH_NETWORKS, SOLANA_NETWORKS} from 'types/index';
-import {useExtendedWallet} from '@figment-pyth/lib/wallet';
-import {JupiterSwapClient} from '@figment-pyth/lib/swap';
+import {
+  SOL_DECIMAL,
+  USDC_DECIMAL,
+  useExtendedWallet,
+} from '@figment-pyth/lib/wallet';
 import _ from 'lodash';
 import * as Rx from 'rxjs';
-
-import {getOrca, Network, OrcaPoolConfig} from '@orca-so/sdk';
-import Decimal from 'decimal.js';
 
 const connection = new Connection(clusterApiUrl(PYTH_NETWORKS.DEVNET));
 const pythPublicKey = getPythProgramKeyForCluster(PYTH_NETWORKS.DEVNET);
 const pythConnection = new PythConnection(connection, pythPublicKey);
-
-enum tokens {
-  SOL_MINT_ADDRESS = 'So11111111111111111111111111111111111111112',
-  SERUM_MINT_ADDRESS = 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt',
-  USDT_MINT_ADDRESS = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-  USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-}
-
-interface Order {
-  side: 'buy' | 'sell';
-  size: number;
-  fromToken: string;
-  toToken: string;
-}
 
 const signalListener = new EventEmitter();
 
@@ -59,32 +40,15 @@ const Exchange = () => {
   const [cluster, setCluster] = useState<Cluster>('devnet');
 
   const [useMock, setUseMock] = useState(true);
+  const [price, setPrice] = useState<number | undefined>(undefined);
   const {setSecretKey, keyPair, balance, addOrder, orderBook, resetWallet} =
-    useExtendedWallet(useMock, cluster);
+    useExtendedWallet(useMock, cluster, price);
 
   // amount of Ema to buy/sell signal.
   const [yieldExpectation, setYield] = useState<number>(0.001);
-  const [orderSize, setOrderSize] = useState<number>(20); // USDC
-  const [price, setPrice] = useState<number | undefined>(undefined);
+  const [orderSizeUSDC, setOrderSizeUSDC] = useState<number>(20); // USDC
+  const [orderSizeSOL, setOrderSizeSOL] = useState<number>(0.14); // SOL
   const [symbol, setSymbol] = useState<string | undefined>(undefined);
-
-  // const [swapClient, setSwapClient] = useState<JupiterSwapClient | null>(null);
-  // useEffect(() => {
-  //   async function _init(key: Keypair): Promise<void> {
-  //     const _swapClient = await JupiterSwapClient.initialize(
-  //       // connection,
-  //       new Connection(clusterApiUrl('devnet'), 'confirmed'),
-  //       SOLANA_NETWORKS.DEVNET,
-  //       key,
-  //       SOL_MINT_ADDRESS,
-  //       USDC_MINT_ADDRESS,
-  //     );
-  //     setSwapClient(_swapClient);
-  //   }
-  //   if (keyPair) {
-  //     // _init(keyPair);
-  //   }
-  // }, [keyPair]);
 
   // state for tracking user worth with current Market Price.
   const [worth, setWorth] = useState({initial: 0, current: 0});
@@ -96,7 +60,11 @@ const Exchange = () => {
       dispatch({
         type: 'SetIsCompleted',
       });
+      setOrderSizeSOL(orderSizeUSDC / price!);
     }
+
+    // Set ordersize Amount in Sol respect to USDC.
+
     // update the current worth each price update.
     const currentWorth = balance?.sol_balance * price! + balance.usdc_balance;
     setWorth({...worth, current: currentWorth});
@@ -106,14 +74,11 @@ const Exchange = () => {
     signalListener.once('*', () => {
       // resetWallet();
     });
-    const buy = Rx.fromEvent(signalListener, 'buy').pipe(
-      Rx.map((v: any) => orderSize),
-    );
-    const sell = Rx.fromEvent(signalListener, 'sell').pipe(
-      Rx.map((v: any) => -orderSize),
-    );
+    const buy = Rx.fromEvent(signalListener, 'buy').pipe(Rx.mapTo(1));
+    const sell = Rx.fromEvent(signalListener, 'sell').pipe(Rx.mapTo(-1));
     Rx.merge(buy, sell)
       .pipe(
+        Rx.tap((v: any) => console.log(v)),
         Rx.bufferTime(3000),
         Rx.map((orders: number[]) => {
           return orders.reduce((prev, curr) => prev + curr, 0); // sum of the orders in the buffer.
@@ -124,14 +89,14 @@ const Exchange = () => {
             // buy.
             return {
               side: 'buy',
-              size: val,
+              size: val * orderSizeUSDC,
               fromToken: 'usdc',
               toToken: 'sol',
             };
           } else if (val <= 0) {
             return {
               side: 'sell',
-              size: Math.abs(val),
+              size: Math.abs(val) * orderSizeSOL,
               fromToken: 'sol',
               toToken: 'usdc',
             };
@@ -141,13 +106,12 @@ const Exchange = () => {
       .subscribe((v: any) => {
         addOrder({
           ...v,
-          price: price!,
         });
       });
     return () => {
       signalListener.removeAllListeners();
     };
-  }, [yieldExpectation, orderSize]);
+  }, [yieldExpectation, orderSizeUSDC]);
 
   const [data, setData] = useState<any[]>([]);
   const getPythData = async (checked: boolean) => {
@@ -232,43 +196,6 @@ const Exchange = () => {
     }
   };
 
-  const buySomeOrca = async () => {
-    const orca = getOrca(connection, Network.DEVNET);
-    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);
-    const solToken = orcaSolPool.getTokenB();
-    const solAmount = new Decimal(0.1);
-    const quote = await orcaSolPool.getQuote(solToken, solAmount);
-    const orcaAmount = quote.getMinOutputAmount();
-    console.log(
-      `Swap ${solAmount.toString()} SOL for at least ${orcaAmount.toNumber()} ORCA`,
-    );
-    const swapPayload = await orcaSolPool.swap(
-      keyPair!,
-      solToken,
-      solAmount,
-      orcaAmount,
-    );
-    const swapTxId = await swapPayload.execute();
-    console.log('Swapped:', swapTxId, '\n');
-
-    const orcaUSDCPool = orca.getPool(OrcaPoolConfig.ORCA_USDC);
-    const orcaToken = orcaUSDCPool.getTokenA();
-    const usdcQuote = await orcaUSDCPool.getQuote(orcaToken, orcaAmount);
-    const usdcAmount = usdcQuote.getMinOutputAmount();
-    const swapOrcaPayload = await orcaUSDCPool.swap(
-      keyPair!,
-      orcaToken,
-      orcaAmount,
-      usdcAmount,
-    );
-    console.log(
-      `Swap ${orcaAmount.toString()} ORCA for at least ${usdcAmount.toNumber()} USDC`,
-    );
-
-    const swapOrcaTxId = await swapOrcaPayload.execute();
-    console.log('Swapped:', swapOrcaTxId, '\n');
-    return [swapTxId, swapOrcaTxId];
-  };
   return (
     <Col>
       <Space direction="vertical" size="large">
@@ -294,8 +221,8 @@ const Exchange = () => {
               prefix="%"
             />
             <InputNumber
-              value={orderSize}
-              onChange={(e) => setOrderSize(e)}
+              value={orderSizeUSDC}
+              onChange={(e) => setOrderSizeUSDC(e)}
               prefix="USDC"
             />
           </Card>
@@ -341,30 +268,26 @@ const Exchange = () => {
             <Row>
               <Col span={12}>
                 <Statistic
-                  value={balance?.sol_balance}
-                  precision={6}
+                  value={balance?.sol_balance / SOL_DECIMAL}
                   title={'SOL'}
                 />
               </Col>
               <Col span={12}>
                 <Statistic
-                  value={balance?.usdc_balance}
-                  precision={6}
+                  value={balance?.usdc_balance / USDC_DECIMAL}
                   title={'USDC'}
                 />
               </Col>
               <Col span={12}>
-                <Statistic
-                  value={balance?.orca_balance}
-                  precision={6}
-                  title={'ORCA'}
-                />
+                <Statistic value={balance?.orca_balance} title={'ORCA'} />
               </Col>
 
               <Col span={12}>
                 <Statistic
-                  value={balance?.sol_balance * price! + balance.usdc_balance}
-                  precision={6}
+                  value={
+                    (balance?.sol_balance / SOL_DECIMAL) * price! +
+                    balance.usdc_balance / USDC_DECIMAL
+                  }
                   title={'TOTAL WORTH'}
                 />
               </Col>
@@ -373,18 +296,12 @@ const Exchange = () => {
                 <Statistic
                   value={(worth.initial / worth.current) * 100 - 100}
                   prefix={'%'}
-                  precision={6}
                   title={'Change'}
                 />
               </Col>
             </Row>
           </Card>
         </Space>
-        <Card>
-          {/* <Button onClick={async () => await buy()}>Buy</Button> */}
-          {/* <Button onClick={async () => await swapClient?.buy(0.1)}>Buy</Button> */}
-          <Button onClick={async () => await buySomeOrca()}>Buy</Button>
-        </Card>
         <Card>
           <Chart data={data} />
         </Card>
@@ -399,24 +316,38 @@ const Exchange = () => {
                 key: 'side',
               },
               {
-                title: 'Price',
-                dataIndex: 'price',
-                key: 'price',
+                title: 'out Amount',
+                dataIndex: 'outAmount',
+                key: 'outAmount',
+                render: (val, order) => {
+                  if (order.side === 'buy') {
+                    return <Tag color="red">{val / SOL_DECIMAL}</Tag>;
+                  } else {
+                    return <Tag color="green">{val / USDC_DECIMAL}</Tag>;
+                  }
+                },
               },
               {
-                title: 'Size',
-                dataIndex: 'size',
-                key: 'size',
-              },
-              {
-                title: 'From',
-                dataIndex: 'fromToken',
-                key: 'fromToken',
-              },
-              {
-                title: 'To',
+                title: 'Out Token',
                 dataIndex: 'toToken',
                 key: 'toToken',
+              },
+              {
+                title: 'in Amount',
+                dataIndex: 'inAmount',
+                key: 'inAmount',
+                render: (val, order) => {
+                  if (order.side === 'buy') {
+                    return <Tag color="red">{val / USDC_DECIMAL}</Tag>;
+                  } else {
+                    return <Tag color="green">{val / SOL_DECIMAL}</Tag>;
+                  }
+                },
+              },
+              {
+                title: 'In Token',
+                dataIndex: 'fromToken',
+                key: 'fromToken',
               },
             ]}
           ></Table>

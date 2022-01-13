@@ -1,5 +1,7 @@
 import {Cluster, Connection, Keypair, PublicKey} from '@solana/web3.js';
 import {Jupiter, RouteInfo, TOKEN_LIST_URL} from '@jup-ag/core';
+import Decimal from 'decimal.js';
+import {getOrca, Network, OrcaPoolConfig} from '@orca-so/sdk';
 
 const _account = Keypair.fromSecretKey(
   new Uint8Array([
@@ -30,6 +32,7 @@ export class JupiterSwapClient {
     jupiter: Jupiter,
     public readonly tokenA: Token,
     public readonly tokenB: Token,
+    public readonly keypair: Keypair,
   ) {
     this.jupiter = jupiter;
   }
@@ -37,11 +40,11 @@ export class JupiterSwapClient {
   static async initialize(
     connection: Connection,
     cluster: Cluster,
-    user: Keypair,
+    keypair: Keypair,
     tokenAMintAddress: String, // Token to buy
     tokenBMintAddress: String, // token to sell
   ) {
-    const jupiter = await Jupiter.load({connection, cluster, user});
+    const jupiter = await Jupiter.load({connection, cluster, user: keypair});
     const tokens: Token[] = await (await fetch(TOKEN_LIST_URL[cluster])).json(); // Fetch token list from Jupiter API
 
     const inputToken = tokens.find((t) => t.address == tokenAMintAddress); // Buy token
@@ -50,7 +53,7 @@ export class JupiterSwapClient {
       throw new Error('Token not found');
     }
 
-    return new JupiterSwapClient(jupiter, inputToken, outputToken);
+    return new JupiterSwapClient(jupiter, inputToken, outputToken, keypair);
   }
 
   async getRoutes({
@@ -93,13 +96,6 @@ export class JupiterSwapClient {
   }
 
   async buy(size: number) {
-    console.log('Getting routes', {
-      inputToken: this.tokenA,
-      outputToken: this.tokenB,
-      inputAmount: size, // 1 unit in UI
-      slippage: 1, // 1% slippage
-    });
-
     const routes = await this.getRoutes({
       inputToken: this.tokenA,
       outputToken: this.tokenB,
@@ -149,5 +145,88 @@ export class JupiterSwapClient {
       );
     }
     return swapResult;
+  }
+}
+
+export class OrcaSwapClient {
+  constructor(
+    public readonly keypair: Keypair,
+    public readonly connection: Connection,
+  ) {}
+
+  async buy(size: number) {
+    const orca = getOrca(this.connection, Network.DEVNET);
+    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);
+    const solToken = orcaSolPool.getTokenB();
+    const solAmount = new Decimal(size);
+    const quote = await orcaSolPool.getQuote(solToken, solAmount);
+    const orcaAmount = quote.getMinOutputAmount();
+    console.log(
+      `Swap ${solAmount.toString()} SOL for at least ${orcaAmount.toNumber()} ORCA`,
+    );
+    const swapPayload = await orcaSolPool.swap(
+      this.keypair,
+      solToken,
+      solAmount,
+      orcaAmount,
+    );
+    const swapTxId = await swapPayload.execute();
+    console.log('Swapped:', swapTxId, '\n');
+
+    const orcaUSDCPool = orca.getPool(OrcaPoolConfig.ORCA_USDC);
+    const orcaToken = orcaUSDCPool.getTokenA();
+    const usdcQuote = await orcaUSDCPool.getQuote(orcaToken, orcaAmount);
+    const usdcAmount = usdcQuote.getMinOutputAmount();
+    const swapOrcaPayload = await orcaUSDCPool.swap(
+      this.keypair,
+      orcaToken,
+      orcaAmount,
+      usdcAmount,
+    );
+    console.log(
+      `Swap ${orcaAmount.toString()} ORCA for at least ${usdcAmount.toNumber()} USDC`,
+    );
+
+    const swapOrcaTxId = await swapOrcaPayload.execute();
+    console.log('Swapped:', swapOrcaTxId, '\n');
+    return [swapTxId, swapOrcaTxId];
+  }
+
+  async sell(size: number) {
+    const orca = getOrca(this.connection, Network.DEVNET);
+    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);
+    const solToken = orcaSolPool.getTokenB();
+    const solAmount = new Decimal(size);
+    const quote = await orcaSolPool.getQuote(solToken, solAmount);
+    const orcaAmount = quote.getMinOutputAmount();
+    console.log(
+      `Swap ${solAmount.toString()} SOL for at least ${orcaAmount.toNumber()} ORCA`,
+    );
+    const swapPayload = await orcaSolPool.swap(
+      this.keypair,
+      solToken,
+      solAmount,
+      orcaAmount,
+    );
+    const swapTxId = await swapPayload.execute();
+    console.log('Swapped:', swapTxId, '\n');
+
+    const orcaUSDCPool = orca.getPool(OrcaPoolConfig.ORCA_USDC);
+    const orcaToken = orcaUSDCPool.getTokenA();
+    const usdcQuote = await orcaUSDCPool.getQuote(orcaToken, orcaAmount);
+    const usdcAmount = usdcQuote.getMinOutputAmount();
+    const swapOrcaPayload = await orcaUSDCPool.swap(
+      this.keypair,
+      orcaToken,
+      orcaAmount,
+      usdcAmount,
+    );
+    console.log(
+      `Swap ${orcaAmount.toString()} ORCA for at least ${usdcAmount.toNumber()} USDC`,
+    );
+
+    const swapOrcaTxId = await swapOrcaPayload.execute();
+    console.log('Swapped:', swapOrcaTxId, '\n');
+    return [swapTxId, swapOrcaTxId];
   }
 }
