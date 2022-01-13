@@ -51,13 +51,13 @@ export const useExtendedWallet = (
   const [balance, setBalance] = useState<WalletBalance>({
     sol_balance: 10 * SOL_DECIMAL,
     usdc_balance: 1400 * USDC_DECIMAL,
-    orca_balance: 0,
+    orca_balance: 0, // just because of the devnet deps.
   });
 
   const [orderBook, setOrderbook] = useState<Order[]>([]);
 
   const {data, mutate} = useSWR(
-    () => `/balance/${keyPair?.publicKey}`,
+    () => `/balance/${keyPair?.publicKey}`, // cache key base on the keypair.
     balanceFetcher(keyPair!, cluster),
     {
       refreshInterval: 5000,
@@ -70,22 +70,34 @@ export const useExtendedWallet = (
 
   useEffect(() => {
     if (data && !useMock) {
-      const sol_balance = _.get(data, 'data[0].result.value');
+      /**
+       * documentation link for _.get https://lodash.com/docs/4.17.15#get
+       */
+      const sol_balance = _.get(data, 'data[0].result.value', 0);
       const usdc_balance = _.get(
         data,
         'data[1].result.value[0]account.data.parsed.info.tokenAmount.amount',
+        0,
       );
       const orca_balance = _.get(
         data,
         'data[2].result.value[0]account.data.parsed.info.tokenAmount.amount',
+        0,
       );
       setBalance({sol_balance, usdc_balance, orca_balance});
     }
   }, [data]);
 
+  // it works very well in Mainnet.
+  /**
+   * The SDK allows developers to access over 10 Dexes with more than 6bn in liquidity, allowing developers to find the best route with a simple API call.
+   */
   const [jupiterSwapClient, setJupiterSwapClient] =
     useState<JupiterSwapClient | null>(null);
 
+  /**
+   *  since jup.ag not supporting devnet yet, we use orca.
+   */
   const [orcaSwapClient, setOrcaSwapClient] = useState<OrcaSwapClient | null>(
     null,
   );
@@ -115,7 +127,7 @@ export const useExtendedWallet = (
   const getJupiterSwapClient = async () => {
     if (jupiterSwapClient) return jupiterSwapClient;
     const _jupiterSwapClient = await JupiterSwapClient.initialize(
-      new Connection('https://solana-api.projectserum.com/', 'confirmed'),
+      new Connection('https://solana-api.projectserum.com/', 'confirmed'), // why not use clusterApiUrl('mainnet') over projectserum? because mainnet has rate limit at the moment.
       SOLANA_NETWORKS.MAINNET,
       keyPair,
       SOL_MINT_ADDRESS,
@@ -142,7 +154,9 @@ export const useExtendedWallet = (
       inputAmount: order.size,
       slippage: 1,
     });
+    console.log('routes', routes);
     const bestRoute = routes?.routesInfos[0];
+    console.log('bestRoute', bestRoute);
     const result = {
       inAmount: bestRoute?.inAmount || 0,
       outAmount: bestRoute?.outAmount || 0,
@@ -234,13 +248,13 @@ const balanceFetcher = (keyPair: Keypair, cluster: Cluster) => () =>
       {
         jsonrpc: '2.0',
         id: 0,
-        method: 'getBalance',
+        method: 'getBalance', // SOL balance.
         params: [keyPair?.publicKey.toBase58()],
       },
       {
         jsonrpc: '2.0',
         id: 1,
-        method: 'getTokenAccountsByOwner',
+        method: 'getTokenAccountsByOwner', //https://docs.solana.com/developing/clients/jsonrpc-api#gettokenaccountsbyowner
         params: [
           keyPair?.publicKey.toBase58(),
           {
@@ -257,11 +271,11 @@ const balanceFetcher = (keyPair: Keypair, cluster: Cluster) => () =>
       {
         jsonrpc: '2.0',
         id: 2,
-        method: 'getTokenAccountsByOwner',
+        method: 'getTokenAccountsByOwner', //https://docs.solana.com/developing/clients/jsonrpc-api#gettokenaccountsbyowner
         params: [
           keyPair?.publicKey.toBase58(),
           {
-            mint: ORCA_MINT_ADDRESS,
+            mint: ORCA_MINT_ADDRESS, // just because it a midway swap token in devnet.
           },
           {
             encoding: 'jsonParsed',

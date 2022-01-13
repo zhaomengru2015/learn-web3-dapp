@@ -162,8 +162,8 @@ export class OrcaSwapClient {
   ) {}
   async buy(size: number): Promise<SwapResult> {
     const orca = getOrca(this.connection, Network.DEVNET);
-    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);
-    const solToken = orcaSolPool.getTokenB();
+    const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL); // Orca pool for SOL
+    const solToken = orcaSolPool.getTokenB(); // SOL token
     const solAmount = new Decimal(size);
     const quote = await orcaSolPool.getQuote(solToken, solAmount);
     const orcaAmount = quote.getMinOutputAmount();
@@ -174,8 +174,11 @@ export class OrcaSwapClient {
       this.keypair,
       solToken,
       solAmount,
+      // this is here because in smart contract there's a condition if the swap gives me anything lower than,
+      // the amount I requested the transaction will fail and i will keep my SOL.
       orcaAmount,
     );
+
     const swapTxId = await swapPayload.execute();
     console.log('Swapped:', swapTxId, '\n');
 
@@ -201,7 +204,7 @@ export class OrcaSwapClient {
       outAmount: usdcAmount.toNumber(),
     };
   }
-
+  // TODO: Add sell function
   async sell(size: number): Promise<SwapResult> {
     const orca = getOrca(this.connection, Network.DEVNET);
     const orcaSolPool = orca.getPool(OrcaPoolConfig.ORCA_SOL);

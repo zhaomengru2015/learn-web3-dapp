@@ -11,6 +11,7 @@ import {
   Row,
   Input,
   Tag,
+  notification,
 } from 'antd';
 import {useGlobalState} from 'context';
 import {SyncOutlined} from '@ant-design/icons';
@@ -54,6 +55,15 @@ const Exchange = () => {
   // state for tracking user worth with current Market Price.
   const [worth, setWorth] = useState({initial: 0, current: 0});
 
+  useEffect(() => {
+    if (cluster === SOLANA_NETWORKS.MAINNET) {
+      notification.warn({
+        message: 'MAINNET ',
+        description: 'TRANSACTIONS are real',
+      });
+    }
+  }, [cluster]);
+
   // Reset the wallet to the initial state.
 
   useEffect(() => {
@@ -61,30 +71,29 @@ const Exchange = () => {
       dispatch({
         type: 'SetIsCompleted',
       });
+      // Set ordersize Amount in Sol respect to USDC.
       setOrderSizeSOL(orderSizeUSDC / price!);
     }
-
-    // Set ordersize Amount in Sol respect to USDC.
 
     // update the current worth each price update.
     const currentWorth = balance?.sol_balance * price! + balance.usdc_balance;
     setWorth({...worth, current: currentWorth});
-  }, [price, setPrice]);
+  }, [price, orderSizeUSDC, setPrice]);
 
   useEffect(() => {
     signalListener.once('*', () => {
       // resetWallet();
     });
-    const buy = Rx.fromEvent(signalListener, 'buy').pipe(Rx.mapTo(1));
-    const sell = Rx.fromEvent(signalListener, 'sell').pipe(Rx.mapTo(-1));
+    const buy = Rx.fromEvent(signalListener, 'buy').pipe(Rx.mapTo(1)); // for reduce sum function to understand the operation.
+    const sell = Rx.fromEvent(signalListener, 'sell').pipe(Rx.mapTo(-1)); /// for reduce sum function to understand the operation.
     Rx.merge(buy, sell)
       .pipe(
         Rx.tap((v: any) => console.log(v)),
-        Rx.bufferTime(10000),
+        Rx.bufferTime(10000), // wait 10 second.
         Rx.map((orders: number[]) => {
           return orders.reduce((prev, curr) => prev + curr, 0); // sum of the orders in the buffer.
         }),
-        Rx.filter((v) => v !== 0),
+        Rx.filter((v) => v !== 0), // if we have equaviently orders. don't put any order.
         Rx.map((val: number) => {
           if (val > 0) {
             // buy.
@@ -107,12 +116,20 @@ const Exchange = () => {
       .subscribe(async (v: any) => {
         await addOrder({
           ...v,
+          cluster,
         });
       });
     return () => {
       signalListener.removeAllListeners();
     };
-  }, [yieldExpectation, orderSizeUSDC, useMock, cluster, keyPair]);
+  }, [
+    yieldExpectation,
+    orderSizeUSDC,
+    orderSizeSOL,
+    useMock,
+    cluster,
+    keyPair,
+  ]);
 
   const [data, setData] = useState<any[]>([]);
   const getPythData = async (checked: boolean) => {
@@ -171,11 +188,18 @@ const Exchange = () => {
               (newData.price - previousEma) * smoothingFactor + previousEma;
             newData.ema = currentEma;
 
+            /**
+             * trend of the price respect to preview ema.
+             * if the price is higher than the ema, it is a positive trend.
+             * if the price is lower than the ema, it is a negative trend.
+             * prev 10 ema trend:
+             * curr 11 ema  this will yield as trend to be % 110 up which is BUY signal.
+             */
             const trend = newData.ema / data[data.length - 1].ema;
             if (trend * 100 > 100 + yieldExpectation) {
-              signalListener.emit('buy', newData.price);
+              signalListener.emit('buy');
             } else if (trend * 100 < 100 - yieldExpectation) {
-              signalListener.emit('sell', newData.price);
+              signalListener.emit('sell');
             }
           }
           return [...data, newData];
@@ -329,7 +353,7 @@ const Exchange = () => {
             onClick={async () =>
               await addOrder({
                 side: 'sell',
-                size: (balance.sol_balance * 0.01) / SOL_DECIMAL,
+                size: (balance.sol_balance * 0.5) / SOL_DECIMAL,
                 fromToken: 'SOL',
                 toToken: 'USDC',
               })
