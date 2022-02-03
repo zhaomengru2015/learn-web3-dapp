@@ -183,7 +183,6 @@ export const useExtendedWallet = (
       setBalance({
         sol_balance: params.sol_balance * SOL_DECIMAL,
         usdc_balance: params.usdc_balance * USDC_DECIMAL,
-        orca_balance: 0,
       });
     }
   };
